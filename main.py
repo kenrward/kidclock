@@ -4,11 +4,11 @@ import hub75
 import network
 import ntptime
 import time
-
+import secrets # Import the new secrets file
 # --- CONFIGURATION ---
 # Wi-Fi Credentials
-WIFI_SSID = "YOUR_WIFI_NAME"
-WIFI_PASS = "YOUR_WIFI_PASSWORD"
+WIFI_SSID = secrets.WIFI_SSID
+WIFI_PASS = secrets.WIFI_PASS
 
 # HUB75 Panel Configuration (update PINS if your board is different)
 WIDTH = 64
