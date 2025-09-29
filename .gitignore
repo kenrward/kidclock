@@ -1,1 +1,4 @@
 secrets*.py
+credentials*.json
+*.log
+token.json
