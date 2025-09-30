@@ -1,3 +1,4 @@
+```python
 import os.path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -7,7 +8,7 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 def main():
-    """Shows basic usage of the Google Calendar API."""
+    """Shows basic usage of the Google Calendar API with manual auth flow."""
     creds = None
     if os.path.exists("token.json"):
         creds = Credentials.from_authorized_user_file("token.json", SCOPES)
@@ -18,9 +19,14 @@ def main():
             flow = InstalledAppFlow.from_client_secrets_file(
                 "credentials.json", SCOPES
             )
-            # --- THIS IS THE CORRECTED LINE ---
-            creds = flow.run_console()
-            
+
+            # Manual copy-paste auth flow
+            auth_url, _ = flow.authorization_url(prompt="consent")
+            print("Please go to this URL and authorize the application:\n", auth_url)
+            code = input("Enter the authorization code here: ")
+            flow.fetch_token(code=code)
+            creds = flow.credentials
+
         with open("token.json", "w") as token:
             token.write(creds.to_json())
 
