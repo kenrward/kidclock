@@ -1,4 +1,4 @@
-# main.py for Raspberry Pi Visual Schedule Clock (v7 - Smart "Next" Display)
+# main.py for Raspberry Pi Visual Schedule Clock (v7.1 - Logic Fix)
 
 import os
 import sys
@@ -14,14 +14,14 @@ from googleapiclient.discovery import build
 
 # --- CONFIGURATION ---
 SCREEN_WIDTH = 1024; SCREEN_HEIGHT = 600; FULLSCREEN = False
-CALENDAR_OVERRIDE_COLOR = (52, 168, 83); CALENDAR_REFRESH_INTERVAL = 600 # 10 minutes
+CALENDAR_OVERRIDE_COLOR = (52, 168, 83); CALENDAR_REFRESH_INTERVAL = 600
 CALENDAR_ID = "7c2f684e2d209402d42afa2c7e5f91aa2ae5213e19ddf66ed1b7f47fb2700cde@group.calendar.google.com"
 
 # Colors
 BLACK = (0, 0, 0); WHITE = (255, 255, 255); ORANGE = (255, 165, 0)
 GREEN = (0, 255, 0); GRAY = (50, 50, 50); PURPLE = (81, 43, 133)
 
-# (SCHEDULE definitions are unchanged)
+# --- SCHEDULE DEFINITIONS ---
 WEEKDAY_SCHEDULE = [
     {'start': 0, 'end': 390, 'message': 'zZz ZzZ zZz', 'color': WHITE}, {'start': 390, 'end': 420, 'message': 'Breakfast!', 'color': ORANGE}, {'start': 420, 'end': 430, 'message': 'Get Ready!', 'color': ORANGE}, {'start': 430, 'end': 870, 'message': 'School Time', 'color': GREEN}, {'start': 870, 'end': 910, 'message': 'Homework', 'color': ORANGE}, {'start': 910, 'end': 1020, 'message': 'Free Time', 'color': GREEN}, {'start': 1020, 'end': 1200, 'message': 'Dinner Time', 'color': ORANGE}, {'start': 1200, 'end': 1260, 'message': 'Bedtime Soon', 'color': ORANGE}, {'start': 1260, 'end': 1440, 'message': 'zZz ZzZ zZz', 'color': WHITE},
 ]
@@ -30,7 +30,7 @@ SATURDAY_SCHEDULE = [
 ]
 SUNDAY_SCHEDULE = SATURDAY_SCHEDULE.copy()
 
-# (PYGAME & FONT setup is unchanged)
+# --- PYGAME & FONT SETUP ---
 pygame.init()
 font_large = pygame.font.Font(None, 120); font_medium = pygame.font.Font(None, 72); font_small = pygame.font.Font(None, 50)
 flags = pygame.FULLSCREEN if FULLSCREEN else 0
@@ -39,7 +39,7 @@ pygame.display.set_caption("Kid Clock")
 if not FULLSCREEN: pygame.mouse.set_visible(True)
 else: pygame.mouse.set_visible(False)
 
-# (API functions like fetch_calendar_events and get_next_ravens_game are unchanged)
+# --- API & DYNAMIC DATA FUNCTIONS ---
 next_ravens_game_time = None
 todays_calendar_events = []
 def fetch_calendar_events():
@@ -62,22 +62,43 @@ def fetch_calendar_events():
     except Exception as e:
         print(f"An error occurred fetching calendar events: {e}")
         return []
-def get_next_ravens_game():
-    # This function remains unchanged
-    pass
-def get_current_and_next_activity(minute_of_day, schedule):
-    # This function remains unchanged
-    pass
 
-# --- V3 HELPER FUNCTION ---
+def get_next_ravens_game():
+    try:
+        # This function is restored from our previous version
+        url = "http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        now_utc = datetime.now(timezone.utc)
+        for event in data['events']:
+            game_date_str = event['date']
+            game_date_naive = datetime.strptime(game_date_str, "%Y-%m-%dT%H:%MZ")
+            game_date = game_date_naive.replace(tzinfo=timezone.utc)
+            if game_date < now_utc: continue
+            for team_data in event['competitions'][0]['competitors']:
+                if team_data['team']['abbreviation'] == 'BAL':
+                    return game_date
+    except Exception as e:
+        print(f"Could not fetch game schedule: {e}")
+    return None
+
+def get_current_and_next_activity(minute_of_day, schedule):
+    # ** THIS IS THE CORRECTED FUNCTION **
+    for i, activity in enumerate(schedule):
+        if activity['start'] <= minute_of_day < activity['end']:
+            current_activity = activity
+            next_activity = schedule[(i + 1) % len(schedule)]
+            return current_activity, next_activity
+    # This line prevents the crash if a gap is found in the schedule
+    return None, None
+
 def get_next_upcoming_event(now_dt, events):
-    """Finds the next event in a list that starts after the current time."""
     for event in events:
         start = event['start'].get('dateTime', event['start'].get('date'))
         if 'dateTime' not in event['start']: continue
         event_start_time = datetime.fromisoformat(start).astimezone(None)
         if event_start_time > now_dt:
-            return event  # Return the first event that is in the future
+            return event
     return None
 
 # --- MAIN PROGRAM ---
@@ -85,7 +106,7 @@ next_ravens_game_time = get_next_ravens_game()
 last_calendar_refresh = 0
 running = True
 last_checked_minute = -1
-active_schedule = WEEKDAY_SCHEDULE # Initialize with a default
+active_schedule = WEEKDAY_SCHEDULE
 
 while running:
     for event in pygame.event.get():
@@ -116,21 +137,11 @@ while running:
             message, color = current_act['message'], current_act['color']
             now_dt_local = datetime.now().astimezone()
 
-            # --- V3 "NEXT" EVENT LOGIC ---
-            # Start with the default "next" from the base schedule
-            next_event_message = next_base_act['message']
-            next_event_color = next_base_act['color']
-            
-            # Find the soonest upcoming event from all sources
-            soonest_event_time = None
-            
-            # 1. Candidate: Next Base Event
+            next_event_message = next_base_act['message']; next_event_color = next_base_act['color']
             next_base_dt = now_dt_local.replace(hour=next_base_act['start'] // 60, minute=next_base_act['start'] % 60, second=0, microsecond=0)
-            if next_base_dt < now_dt_local: # If next day, add a day
-                 next_base_dt += timedelta(days=1)
+            if next_base_dt < now_dt_local: next_base_dt += timedelta(days=1)
             soonest_event_time = next_base_dt
-
-            # 2. Candidate: Next Calendar Event
+            
             next_cal_event = get_next_upcoming_event(now_dt_local, todays_calendar_events)
             if next_cal_event:
                 cal_start_time = datetime.fromisoformat(next_cal_event['start'].get('dateTime')).astimezone(None)
@@ -138,16 +149,13 @@ while running:
                     soonest_event_time = cal_start_time
                     next_event_message = next_cal_event['summary']
                     next_event_color = CALENDAR_OVERRIDE_COLOR
-
-            # 3. Candidate: Ravens Game
+            
             if next_ravens_game_time:
                 game_time_local = next_ravens_game_time.astimezone(None)
                 if now_dt_local < game_time_local < soonest_event_time:
-                    # soonest_event_time = game_time_local # This line is optional
                     next_event_message = "Ravens Game!"
                     next_event_color = PURPLE
 
-            # --- CURRENT EVENT OVERRIDE LOGIC (Unchanged) ---
             for event in todays_calendar_events:
                 start = event['start'].get('dateTime'); end = event['end'].get('dateTime')
                 if not start or not end: continue
@@ -159,7 +167,6 @@ while running:
                 if game_start <= now_dt_local < game_start + timedelta(hours=3):
                     message = "Ravens Game!"; color = PURPLE
 
-            # --- DRAWING ---
             progress_percent = (current_minute_of_day - current_act['start']) / (current_act['end'] - current_act['start']) if current_act['end'] > current_act['start'] else 0
             msg_surf = font_large.render(message, True, color)
             time_str = time.strftime("%#I:%M %p" if os.name == 'nt' else "%-I:%M %p", current_time_local)
@@ -167,7 +174,6 @@ while running:
             next_label_surf = font_small.render("Next:", True, GRAY)
             next_msg_surf = font_medium.render(next_event_message, True, next_event_color)
 
-            # Positioning and blitting...
             msg_rect = msg_surf.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 50))
             time_rect = time_surf.get_rect(center=(SCREEN_WIDTH / 2, 50))
             next_label_rect = next_label_surf.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT - 80))
